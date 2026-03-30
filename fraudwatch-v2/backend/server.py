@@ -270,7 +270,7 @@ def train_model(dataset_id: str, user=Depends(get_current_user)):
             X_te = scaler.transform(X_te)
             model = xgb.XGBClassifier(
                 n_estimators=100, eval_metric="logloss",
-                random_state=42, use_label_encoder=False)
+                random_state=42)  # ✅ FIXED: use_label_encoder removed in xgboost 2.0
             model.fit(X_tr, y_tr)
             preds = model.predict(X_te)
             probs = model.predict_proba(X_te)[:, 1]
