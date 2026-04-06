@@ -376,7 +376,8 @@ function Dashboard({ transactions, onUpload, heuristicPct, datasetInfo, modelMet
     <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>Don't have a dataset?</p>
     <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "2px 0 0" }}>Download our sample — 1,000 UPI transactions with fraud labels</p>
   </div>
-  <a href="/transactions_with_fraud.csv" download="transactions_with_fraud.csv"
+  <a href="/upi_fraud_ready.csv"
+download="upi_fraud_ready.csv"
     style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#6366f1", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}>
     ⬇ Download sample CSV
   </a>
