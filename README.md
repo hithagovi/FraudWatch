@@ -252,12 +252,8 @@ Use a 50k–100k row sample for fast local testing.
 
 | Metric | Score |
 |--------|-------|
-| Accuracy | 100% |
-| Precision | 100% |
-| Recall | 100% |
-| F1 Score | 100% |
-| ROC-AUC | 100% |
-
+| Accuracy |93.5%|
+| F1 Score | 38.6% |
 *Note: 100% scores on small/synthetic datasets are expected — real-world performance varies.*
 
 ---
