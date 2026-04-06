@@ -78,20 +78,24 @@ def get_current_user(creds: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(401, "Invalid or expired token")
 
 # ── Fraud heuristics ──────────────────────────────────────────────────────────
-AMT_COLS  = ["amount", "Amount", "AMOUNT", "Amount (INR)", "transaction_amount"]
+AMT_COLS  = ["amount", "Amount", "AMOUNT", "Amount (INR)", "Amount ", "transaction_amount"]
 TYPE_COLS = ["type", "Type", "transaction_type", "payment_type"]
 
 def compute_stats(df):
-    col = next((c for c in AMT_COLS if c in df.columns), None)
+    df.columns = df.columns.str.strip()
+    col = next((c for c in AMT_COLS if c.strip() in df.columns), None)
     if col:
-        vals = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        vals = pd.to_numeric(df[col.strip()], errors="coerce").fillna(0)
         return {"avg": float(vals.mean()), "std": float(vals.std() or 1)}
     return {"avg": 0, "std": 1}
 
 def detect_fraud_row(row, stats):
     score, flags = 0, []
-    col = next((c for c in AMT_COLS if c in row), None)
-    amount = float(row.get(col, 0) or 0)
+    # Strip all keys to handle trailing spaces in column names
+    row = {k.strip(): v for k, v in row.items()}
+
+    col = next((c.strip() for c in AMT_COLS if c.strip() in row), None)
+    amount = float(row.get(col, 0) or 0) if col else 0
 
     if stats["std"] > 0:
         z = (amount - stats["avg"]) / stats["std"]
@@ -102,13 +106,14 @@ def detect_fraud_row(row, stats):
     if amount > 100000: score += 15; flags.append("Amount > ₹1 Lakh")
     if amount > 500000: score += 10; flags.append("Amount > ₹5 Lakh")
 
-    tc = next((c for c in TYPE_COLS if c in row), None)
+    tc = next((c.strip() for c in TYPE_COLS if c.strip() in row), None)
     if tc and str(row.get(tc, "")).upper() in ["TRANSFER", "CASH_OUT", "WITHDRAWAL"]:
         score += 15; flags.append(f"High-risk type: {row[tc]}")
 
     old = float(row.get("oldbalanceOrg", row.get("old_balance", row.get("balance_before", 0))) or 0)
     new = float(row.get("newbalanceOrig", row.get("new_balance", row.get("balance_after", 0))) or 0)
-    if old > 0 and new == 0: score += 25; flags.append("Account drained to zero")
+    if old > 0 and new == 0:
+        score += 25; flags.append("Account drained to zero")
 
     ts = str(row.get("Timestamp", row.get("timestamp", row.get("time", ""))))
     if " " in ts:
@@ -119,7 +124,11 @@ def detect_fraud_row(row, stats):
         except Exception:
             pass
 
-    known = row.get("isFraud", row.get("is_fraud", row.get("fraud", row.get("Class", -1))))
+    device = str(row.get("device_type", row.get("device", ""))).lower()
+    if device == "mobile":
+        score += 5; flags.append("Mobile transaction")
+
+    known = row.get("is_fraud", row.get("isFraud", row.get("fraud", row.get("Class", row.get("label", -1)))))
     if str(known).strip() == "1":
         score = max(score, 80); flags.insert(0, "Flagged in dataset")
 
@@ -131,17 +140,15 @@ def detect_fraud_row(row, stats):
 app = FastAPI(title="FraudWatch API", version="2.0.0")
 router = APIRouter(prefix="/api")
 
-origins = ["*"] if FRONTEND_URL == "*" else [FRONTEND_URL]
-app.add_middleware(CORSMiddleware, allow_origins=origins,
-                   allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-
 @app.get("/")
-def root(): return {"status": "FraudWatch API running", "version": "2.0.0"}
+def root():
+    return {"status": "FraudWatch API running", "version": "2.0.0"}
 
 @app.get("/health")
-def health(): return {"status": "ok"}
+def health():
+    return {"status": "ok"}
 
-# ── Auth routes ───────────────────────────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────
 class RegisterIn(BaseModel):
     email: str
     password: str
@@ -187,7 +194,7 @@ def login(data: LoginIn):
 def me(user=Depends(get_current_user)):
     return user
 
-# ── Dataset routes ────────────────────────────────────────────────────────────
+# ── Datasets ──────────────────────────────────────────────────────────────────
 @router.post("/datasets/upload")
 async def upload_dataset(
     file: UploadFile = File(...),
@@ -200,6 +207,7 @@ async def upload_dataset(
     except Exception as e:
         raise HTTPException(400, f"Cannot parse CSV: {e}")
 
+    df.columns = df.columns.str.strip()
     possible  = ["isFraud", "is_fraud", "fraud", "Class", "label", fraud_column]
     fraud_col = next((c for c in possible if c in df.columns), None)
     dataset_id = str(uuid.uuid4())
@@ -210,7 +218,7 @@ async def upload_dataset(
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "rows": len(df), "columns": df.columns.tolist(),
         "fraud_column": fraud_col or "none", "status": "uploaded",
-        "csv_data": df.to_csv(index=False)   # stored in Mongo
+        "csv_data": df.to_csv(index=False)
     }
     datasets_col.insert_one(meta)
     meta.pop("_id", None); meta.pop("csv_data", None)
@@ -220,7 +228,7 @@ async def upload_dataset(
 def list_datasets(user=Depends(get_current_user)):
     return list(datasets_col.find({"uploaded_by": user["email"]}, {"_id": 0, "csv_data": 0}))
 
-# ── Train route ───────────────────────────────────────────────────────────────
+# ── Train ─────────────────────────────────────────────────────────────────────
 @router.post("/datasets/{dataset_id}/train")
 def train_model(dataset_id: str, user=Depends(get_current_user)):
     ds = datasets_col.find_one({"id": dataset_id}, {"_id": 0})
@@ -230,9 +238,15 @@ def train_model(dataset_id: str, user=Depends(get_current_user)):
         raise HTTPException(404, "Dataset file missing")
 
     df = pd.read_csv(io.StringIO(ds["csv_data"]))
+    df.columns = df.columns.str.strip()  # Fix trailing spaces in column names
     datasets_col.update_one({"id": dataset_id}, {"$set": {"status": "training"}})
 
-    fraud_col  = ds.get("fraud_column", "none")
+    fraud_col = ds.get("fraud_column", "none")
+    if fraud_col not in df.columns:
+        fraud_col = next(
+            (c for c in ["is_fraud", "isFraud", "fraud", "Class", "label"] if c in df.columns),
+            "none"
+        )
     has_labels = fraud_col != "none" and fraud_col in df.columns
 
     X = df.drop(columns=[fraud_col] if has_labels else [])
@@ -245,17 +259,23 @@ def train_model(dataset_id: str, user=Depends(get_current_user)):
     feature_cols = X.columns.tolist()
     stats = compute_stats(df)
 
-    # Heuristic pass on all rows
+    # ── Heuristic pass ────────────────────────────────────────────────────────
     results = []
     for i, row in enumerate(df.to_dict("records")):
         det = detect_fraud_row(row, stats)
         r = {k: (None if isinstance(v, float) and np.isnan(v) else v) for k, v in row.items()}
-        r.update({"_id": i, "_score": det["score"], "_status": det["status"],
-                  "_flags": det["flags"], "_amount_inr": det["amount_inr"],
-                  "_source": "heuristic", "dataset_id": dataset_id})
+        r.update({
+            "_id": i,
+            "_score": det["score"],
+            "_status": det["status"],
+            "_flags": det["flags"],
+            "_amount_inr": det["amount_inr"],
+            "_source": "heuristic",
+            "dataset_id": dataset_id,
+        })
         results.append(r)
 
-    # XGBoost pass if labels exist
+    # ── XGBoost pass ─────────────────────────────────────────────────────────
     metrics, feature_importance = {}, {}
     if has_labels:
         try:
@@ -267,13 +287,17 @@ def train_model(dataset_id: str, user=Depends(get_current_user)):
                 X_tr, y_tr = SMOTE(random_state=42).fit_resample(X_tr, y_tr)
             scaler = StandardScaler()
             X_tr = scaler.fit_transform(X_tr)
-            X_te = scaler.transform(X_te)
+            X_te  = scaler.transform(X_te)
+
             model = xgb.XGBClassifier(
-                n_estimators=100, eval_metric="logloss",
-                random_state=42)  # ✅ FIXED: use_label_encoder removed in xgboost 2.0
+                n_estimators=100,
+                eval_metric="logloss",
+                random_state=42
+            )
             model.fit(X_tr, y_tr)
             preds = model.predict(X_te)
             probs = model.predict_proba(X_te)[:, 1]
+
             metrics = {
                 "accuracy":  round(float(accuracy_score(y_te, preds)), 4),
                 "precision": round(float(precision_score(y_te, preds, zero_division=0)), 4),
@@ -282,9 +306,11 @@ def train_model(dataset_id: str, user=Depends(get_current_user)):
                 "roc_auc":   round(float(roc_auc_score(y_te, probs)), 4),
             }
             feature_importance = dict(zip(
-                feature_cols, [round(float(x), 4) for x in model.feature_importances_]))
+                feature_cols,
+                [round(float(x), 4) for x in model.feature_importances_]
+            ))
 
-            # Apply XGBoost predictions to ALL rows
+            # Apply XGBoost to ALL rows
             X_full    = scaler.transform(X.values)
             all_preds = model.predict(X_full)
             all_probs = model.predict_proba(X_full)[:, 1]
@@ -294,29 +320,34 @@ def train_model(dataset_id: str, user=Depends(get_current_user)):
                 r["_source"] = "xgboost"
 
             logger.info(f"XGBoost done — F1:{metrics['f1']} AUC:{metrics['roc_auc']}")
+
         except Exception as e:
             logger.warning(f"XGBoost failed, keeping heuristics: {e}", exc_info=True)
 
-    # Persist to MongoDB
+    # ── Save to MongoDB ───────────────────────────────────────────────────────
     transactions_col.delete_many({"dataset_id": dataset_id})
     if results:
         transactions_col.insert_many(results[:10000])
 
     datasets_col.update_one(
         {"id": dataset_id},
-        {"$set": {"status": "trained", "row_count": len(results)}})
+        {"$set": {"status": "trained", "row_count": len(results), "metrics": metrics}}
+    )
 
     fc = sum(1 for r in results if r["_status"] == "Fraudulent")
     sc = sum(1 for r in results if r["_status"] == "Suspicious")
     return {
-        "dataset_id": dataset_id, "total": len(results),
-        "fraudulent": fc, "suspicious": sc,
+        "dataset_id": dataset_id,
+        "total": len(results),
+        "fraudulent": fc,
+        "suspicious": sc,
         "safe": len(results) - fc - sc,
-        "metrics": metrics, "feature_importance": feature_importance,
+        "metrics": metrics,
+        "feature_importance": feature_importance,
         "xgboost_used": bool(metrics),
     }
 
-# ── Transaction routes ────────────────────────────────────────────────────────
+# ── Transactions ──────────────────────────────────────────────────────────────
 @router.get("/transactions")
 def get_transactions(
     status: Optional[str] = None,
@@ -337,18 +368,22 @@ def analytics_summary(user=Depends(get_current_user)):
     total      = transactions_col.count_documents({})
     fraudulent = transactions_col.count_documents({"_status": "Fraudulent"})
     suspicious = transactions_col.count_documents({"_status": "Suspicious"})
-    fraud_amts = [t.get("_amount_inr", 0) or 0
-                  for t in transactions_col.find({"_status": "Fraudulent"}, {"_amount_inr": 1, "_id": 0})]
-    total_inr  = sum(fraud_amts)
+    fraud_amts = [
+        t.get("_amount_inr", 0) or 0
+        for t in transactions_col.find({"_status": "Fraudulent"}, {"_amount_inr": 1, "_id": 0})
+    ]
+    total_inr = sum(fraud_amts)
     return {
-        "total": total, "fraudulent": fraudulent, "suspicious": suspicious,
+        "total": total,
+        "fraudulent": fraudulent,
+        "suspicious": suspicious,
         "safe": total - fraudulent - suspicious,
         "total_fraud_inr": total_inr,
         "avg_fraud_inr": total_inr / max(fraudulent, 1),
         "detection_rate": round(fraudulent / max(total, 1) * 100, 2),
     }
 
-# ── Block routes ──────────────────────────────────────────────────────────────
+# ── Blocks ────────────────────────────────────────────────────────────────────
 @router.get("/blocks")
 def get_blocks(user=Depends(get_current_user)):
     return [b["entity"] for b in blocks_col.find({}, {"_id": 0})]
@@ -366,9 +401,20 @@ def remove_block(entity: str, user=Depends(get_current_user)):
     blocks_col.delete_one({"entity": entity})
     return {"blocked": [b["entity"] for b in blocks_col.find({}, {"_id": 0})]}
 
-# ── Mount & run ───────────────────────────────────────────────────────────────
+# ── CORS — must be before include_router ──────────────────────────────────────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_origin_regex=".*",
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
+
+# ── Mount ─────────────────────────────────────────────────────────────────────
 app.include_router(router)
 
+# ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=PORT, reload=True)

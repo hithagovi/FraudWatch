@@ -1,26 +1,15 @@
 fastapi==0.111.0
-uvicorn[standard]==0.29.0
+uvicorn==0.29.0
 gunicorn==22.0.0
-python-multipart==0.0.9
-pydantic==2.7.1
-
-# Database
-pymongo==4.7.2
-motor==3.4.0
-
-# Auth
+pandas==2.2.2
+xgboost==2.0.3
+scikit-learn==1.4.2
+imbalanced-learn==0.12.3
+joblib==1.4.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==3.2.2        # ✅ FIXED: bcrypt 4.x breaks passlib 1.7.4 (removed __about__)
-
-# ML
-pandas==2.2.2
-numpy==1.26.4
-scikit-learn==1.4.2
-xgboost==2.0.3
-imbalanced-learn==0.12.2
-joblib==1.4.2
-
-# Utils
-python-dotenv==1.0.1
+python-multipart==0.0.9
 aiofiles==23.2.1
+pymongo==4.7.2
+python-dotenv==1.0.1
+dnspython==2.6.1
