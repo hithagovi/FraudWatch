@@ -720,7 +720,6 @@ export default function App() {
   const [mlStatus, setMlStatus]         = useState("idle");
   const [heuristicPct, setHeuristicPct] = useState(0);
   const [toast, setToast]               = useState(null);
-  const [blockedCount, setBlockedCount] = useState(0);
   const rawRowsRef                      = useRef([]);
 
   // Restore session
@@ -785,7 +784,7 @@ export default function App() {
     };
     reader.onerror = () => showToast("Failed to read file", "error");
     reader.readAsText(file);
-  }, []);
+  }, [runHeuristics, uploadToBackend]);
 
   // ── Heuristic scan (instant, browser-side) ──
   const runHeuristics = (rows) => {
