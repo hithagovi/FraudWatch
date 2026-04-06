@@ -371,6 +371,16 @@ function Dashboard({ transactions, onUpload, heuristicPct, datasetInfo, modelMet
           <div style={{ fontSize: 28, color: "#94a3b8", marginBottom: 8 }}>↑</div>
           <div style={{ color: "#475569", fontWeight: 500 }}>Drag & drop a CSV file with is_fraud column, or click to select</div>
           <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>Any size · Any CSV with transaction data</div>
+          <div style={{ background: "var(--color-background-secondary)", borderRadius: 8, border: "0.5px solid var(--color-border-tertiary)", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 12 }}>
+  <div>
+    <p style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text-primary)", margin: 0 }}>Don't have a dataset?</p>
+    <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "2px 0 0" }}>Download our sample — 1,000 UPI transactions with fraud labels</p>
+  </div>
+  <a href="/transactions_with_fraud.csv" download="transactions_with_fraud.csv"
+    style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#6366f1", color: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0 }}>
+    ⬇ Download sample CSV
+  </a>
+</div>
           <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }}
             onChange={e => { if (e.target.files[0]) { onUpload(e.target.files[0]); e.target.value = ""; } }} />
         </div>
